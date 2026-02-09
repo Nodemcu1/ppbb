@@ -13,6 +13,19 @@ premium minimalist look.
 | `button` | Optional button texture/accent | **512×128** | Slim horizontal accent for buttons if you swap to image buttons. |
 | `accent` | Optional accent strip | **512×64** | Thin highlight for separators or headers. |
 
+### Image generation prompts (Paintball themed, branded “created by Vic”)
+
+Use the following prompts with your image generator. Each prompt already includes size and style guidance.
+
+- **background (1024×1024):** “Modern minimalist Paintball Ultra menu background, matte charcoal/slate gradient, subtle paintball splatter texture, soft vignette, premium UI look, no text, no logos, clean center space, 1024×1024, created by Vic.”
+- **panel (512×610):** “Paintball arena vote card backdrop, soft matte dark panel with faint paintball mask silhouette, low-contrast glow, premium minimalist UI, no text, 512×610, created by Vic.”
+- **button (512×128):** “Sleek paintball UI button strip, subtle bevel, matte charcoal with pastel green accent stroke, minimal texture, no text, 512×128, created by Vic.”
+- **accent (512×64):** “Thin premium UI accent bar, paintball theme with soft burnt orange highlight, matte dark base, no text, 512×64, created by Vic.”
+
+#### Arena thumbnail prompt (512×610)
+
+“Paintball arena overview, cinematic but minimalist, pastel green vs burnt orange lighting accents, clean geometry, no characters, no weapons, no text, soft depth-of-field, 512×610, created by Vic.”
+
 ### Arena thumbnails
 
 Each arena can provide `Thumbnail` (ImageLibrary key or URL). Recommended aspect ratio: **~0.84** (e.g. **512×610**).
