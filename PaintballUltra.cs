@@ -43,6 +43,7 @@ namespace Oxide.Plugins
         private const string TeamBColor = "0.82 0.5 0.3 1";
         private const string DarkPanelColor = "0.09 0.1 0.12 0.95";
         private const string SoftShadowColor = "0 0 0 0.35";
+        private const string SubtleButtonColor = "0.2 0.2 0.25 0.9";
         private const string TextColor = "1 1 1 1";
         #endregion
 
@@ -395,6 +396,17 @@ namespace Oxide.Plugins
             }
             JoinGame(player);
             ShowLobbyUi(player);
+        }
+
+        [ConsoleCommand("pbui.main")]
+        private void ConsoleMain(ConsoleSystem.Arg arg)
+        {
+            var player = arg.Player();
+            if (player == null)
+            {
+                return;
+            }
+            ShowMainUi(player);
         }
 
         [ConsoleCommand("pbui.ready")]
@@ -1013,6 +1025,7 @@ namespace Oxide.Plugins
                 Text = { Text = "Paintball Ultra", FontSize = 26, Align = TextAnchor.UpperCenter, Color = TextColor },
                 RectTransform = { AnchorMin = "0 0.88", AnchorMax = "1 0.98" }
             }, MainUi);
+            AddCloseButton(container, MainUi);
 
             container.Add(new CuiLabel
             {
@@ -1035,7 +1048,7 @@ namespace Oxide.Plugins
 
             container.Add(new CuiButton
             {
-                Button = { Color = "0.2 0.2 0.25 0.9", Command = "pbui.shop" },
+                Button = { Color = SubtleButtonColor, Command = "pbui.shop" },
                 RectTransform = { AnchorMin = "0.3 0.08", AnchorMax = "0.7 0.16" },
                 Text = { Text = "Shop", FontSize = 14, Align = TextAnchor.MiddleCenter, Color = TextColor }
             }, MainUi);
@@ -1061,6 +1074,7 @@ namespace Oxide.Plugins
                 Text = { Text = "Lobby", FontSize = 18, Align = TextAnchor.UpperCenter, Color = TextColor },
                 RectTransform = { AnchorMin = "0 0.9", AnchorMax = "1 1" }
             }, LobbyUi);
+            AddCloseButton(container, LobbyUi);
 
             var y = 0.78f;
             foreach (var session in sessions.Values)
@@ -1081,7 +1095,7 @@ namespace Oxide.Plugins
 
             container.Add(new CuiButton
             {
-                Button = { Color = "0.2 0.2 0.25 0.9", Command = "pbui.ready" },
+                Button = { Color = SubtleButtonColor, Command = "pbui.ready" },
                 RectTransform = { AnchorMin = "0.2 0.02", AnchorMax = "0.8 0.09" },
                 Text = { Text = "Toggle Ready", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = TextColor }
             }, LobbyUi);
@@ -1107,6 +1121,7 @@ namespace Oxide.Plugins
                 Text = { Text = "Vote for Arena", FontSize = 20, Align = TextAnchor.UpperCenter, Color = TextColor },
                 RectTransform = { AnchorMin = "0 0.9", AnchorMax = "1 1" }
             }, VotingUi);
+            AddCloseButton(container, VotingUi);
 
             var startX = 0.08f;
             var width = 0.26f;
@@ -1157,6 +1172,14 @@ namespace Oxide.Plugins
             {
                 Text = { Text = "Paintball Shop", FontSize = 20, Align = TextAnchor.UpperCenter, Color = TextColor },
                 RectTransform = { AnchorMin = "0 0.92", AnchorMax = "1 1" }
+            }, ShopUi);
+            AddCloseButton(container, ShopUi);
+
+            container.Add(new CuiButton
+            {
+                Button = { Color = SubtleButtonColor, Command = "pbui.main" },
+                RectTransform = { AnchorMin = "0.08 0.04", AnchorMax = "0.28 0.1" },
+                Text = { Text = "Return", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = TextColor }
             }, ShopUi);
 
             var data = GetPlayerData(player.userID);
@@ -1299,6 +1322,16 @@ namespace Oxide.Plugins
                     new CuiRectTransformComponent { AnchorMin = "0 0", AnchorMax = "1 1" }
                 }
             });
+        }
+
+        private void AddCloseButton(CuiElementContainer container, string parent)
+        {
+            container.Add(new CuiButton
+            {
+                Button = { Color = SubtleButtonColor, Close = parent },
+                RectTransform = { AnchorMin = "0.92 0.92", AnchorMax = "0.98 0.98" },
+                Text = { Text = "X", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = TextColor }
+            }, parent);
         }
         #endregion
 
