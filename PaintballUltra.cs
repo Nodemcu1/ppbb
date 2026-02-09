@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Oxide.Core;
 using Oxide.Core.Libraries.Covalence;
@@ -32,6 +33,10 @@ namespace Oxide.Plugins
         private const string AmmoShortname = "ammo.paintball";
         private const string FlagShortname = "twitchrivalsflag";
         private const float SpawnProtectionSeconds = 3f;
+        private const float SpawnProtectionRadius = 1.5f;
+        private const float FlagInteractionDistance = 2f;
+        private const float WandMaxRaycastDistance = 100f;
+        private const float InstantKillDamageBuffer = 100f;
         private const string TeamAColor = "0.55 0.8 0.65 1";
         private const string TeamBColor = "0.82 0.5 0.3 1";
         private const string DarkPanelColor = "0.09 0.1 0.12 0.95";
@@ -51,6 +56,8 @@ namespace Oxide.Plugins
         private readonly Dictionary<string, int> voteCounts = new Dictionary<string, int>();
         private readonly Dictionary<ulong, string> voteSelections = new Dictionary<ulong, string>();
         private readonly Dictionary<ulong, string> killFeed = new Dictionary<ulong, string>();
+        private readonly System.Random rng = new System.Random();
+        private int savingData;
         private Timer phaseTimer;
         private Timer hudTimer;
         private Timer dataSaveTimer;
@@ -63,6 +70,8 @@ namespace Oxide.Plugins
         private ulong flagCarrierB;
         private Vector3? droppedFlagA;
         private Vector3? droppedFlagB;
+        private BaseEntity droppedFlagEntityA;
+        private BaseEntity droppedFlagEntityB;
         #endregion
 
         #region Configuration
@@ -106,7 +115,7 @@ namespace Oxide.Plugins
         {
             base.LoadConfig();
             config = Config.ReadObject<PluginConfig>();
-            if (config?.ImageUrls == null)
+            if (config?.ImageUrls == null || config.CosmeticLooks == null)
             {
                 LoadDefaultConfig();
             }
@@ -212,7 +221,7 @@ namespace Oxide.Plugins
                 }
             }
             info.damageTypes = new DamageTypeList();
-            info.damageTypes.Add(DamageType.Generic, victim.health + 100f);
+            info.damageTypes.Add(DamageType.Generic, victim.health + InstantKillDamageBuffer);
         }
 
         private void OnEntityDeath(BaseCombatEntity entity, HitInfo info)
@@ -266,12 +275,14 @@ namespace Oxide.Plugins
             if (flagCarrierA == player.userID)
             {
                 flagCarrierA = 0;
-                droppedFlagA = player.transform.position;
+                droppedFlagA = entity?.transform.position ?? player.transform.position;
+                droppedFlagEntityA = entity;
             }
             if (flagCarrierB == player.userID)
             {
                 flagCarrierB = 0;
-                droppedFlagB = player.transform.position;
+                droppedFlagB = entity?.transform.position ?? player.transform.position;
+                droppedFlagEntityB = entity;
             }
             return null;
         }
@@ -498,7 +509,7 @@ namespace Oxide.Plugins
                 {
                     return;
                 }
-                if (readyPlayers.Count == sessions.Count && sessions.Count > 0)
+                if (readyPlayers.Count > 0 && readyPlayers.Count == sessions.Count)
                 {
                     SetPhase(GamePhase.Voting);
                 }
@@ -594,7 +605,10 @@ namespace Oxide.Plugins
 
         private void HandleKill(BasePlayer attacker, BasePlayer victim)
         {
-            var victimSession = sessions[victim.userID];
+            if (!sessions.TryGetValue(victim.userID, out var victimSession))
+            {
+                return;
+            }
             victimSession.IsAlive = false;
             var victimData = GetPlayerData(victim.userID);
             victimData.Deaths++;
@@ -604,9 +618,8 @@ namespace Oxide.Plugins
                 return;
             }
 
-            if (attacker != null && sessions.ContainsKey(attacker.userID))
+            if (attacker != null && sessions.TryGetValue(attacker.userID, out var attackerSession))
             {
-                var attackerSession = sessions[attacker.userID];
                 var data = GetPlayerData(attacker.userID);
                 data.Kills++;
                 data.PaintChips += config.KillChips;
@@ -660,6 +673,10 @@ namespace Oxide.Plugins
         private void CheckEliminationEnd()
         {
             var aliveTeams = sessions.Values.Where(x => x.IsAlive).Select(x => x.Team).Distinct().ToList();
+            if (aliveTeams.Count == 0)
+            {
+                return;
+            }
             if (aliveTeams.Count == 1)
             {
                 AwardWinTeam(aliveTeams[0]);
@@ -803,14 +820,14 @@ namespace Oxide.Plugins
                 TeleportToLobby(player);
                 return;
             }
-            var spawn = spawnList[UnityEngine.Random.Range(0, spawnList.Count)];
+            var spawn = spawnList[rng.Next(spawnList.Count)];
             player.Teleport(spawn);
         }
 
         private void ApplySpawnProtection(BasePlayer player)
         {
             spawnProtection[player.userID] = Time.realtimeSinceStartup + SpawnProtectionSeconds;
-            player.SendConsoleCommand("ddraw.sphere", SpawnProtectionSeconds, Color.cyan, player.transform.position, 1.5f);
+            player.SendConsoleCommand("ddraw.sphere", SpawnProtectionSeconds, Color.cyan, player.transform.position, SpawnProtectionRadius);
         }
 
         private bool IsSpawnProtected(BasePlayer player)
@@ -835,6 +852,8 @@ namespace Oxide.Plugins
             flagCarrierB = 0;
             droppedFlagA = null;
             droppedFlagB = null;
+            ClearDroppedFlag(Team.TeamA);
+            ClearDroppedFlag(Team.TeamB);
         }
 
         private void StartHudUpdates()
@@ -873,36 +892,36 @@ namespace Oxide.Plugins
                 {
                     continue;
                 }
-                if (session.Team == Team.TeamA && droppedFlagB.HasValue && Vector3.Distance(player.transform.position, droppedFlagB.Value) < 2f)
+                if (session.Team == Team.TeamA && droppedFlagB.HasValue && Vector3.Distance(player.transform.position, droppedFlagB.Value) < FlagInteractionDistance)
                 {
-                    droppedFlagB = null;
+                    ClearDroppedFlag(Team.TeamB);
                     EquipFlag(player, Team.TeamB);
                 }
-                if (session.Team == Team.TeamB && droppedFlagA.HasValue && Vector3.Distance(player.transform.position, droppedFlagA.Value) < 2f)
+                if (session.Team == Team.TeamB && droppedFlagA.HasValue && Vector3.Distance(player.transform.position, droppedFlagA.Value) < FlagInteractionDistance)
                 {
-                    droppedFlagA = null;
+                    ClearDroppedFlag(Team.TeamA);
                     EquipFlag(player, Team.TeamA);
                 }
-                if (session.Team == Team.TeamA && flagCarrierB == 0 && Vector3.Distance(player.transform.position, arena.FlagBBase) < 2f)
+                if (session.Team == Team.TeamA && flagCarrierB == 0 && Vector3.Distance(player.transform.position, arena.FlagBBase) < FlagInteractionDistance)
                 {
                     EquipFlag(player, Team.TeamB);
                 }
-                if (session.Team == Team.TeamB && flagCarrierA == 0 && Vector3.Distance(player.transform.position, arena.FlagABase) < 2f)
+                if (session.Team == Team.TeamB && flagCarrierA == 0 && Vector3.Distance(player.transform.position, arena.FlagABase) < FlagInteractionDistance)
                 {
                     EquipFlag(player, Team.TeamA);
                 }
-                if (session.Team == Team.TeamA && flagCarrierB == player.userID && Vector3.Distance(player.transform.position, arena.FlagABase) < 2f)
+                if (session.Team == Team.TeamA && flagCarrierB == player.userID && Vector3.Distance(player.transform.position, arena.FlagABase) < FlagInteractionDistance)
                 {
                     teamAScore++;
                     flagCarrierB = 0;
-                    droppedFlagB = null;
+                    ClearDroppedFlag(Team.TeamB);
                     CheckMatchEnd();
                 }
-                if (session.Team == Team.TeamB && flagCarrierA == player.userID && Vector3.Distance(player.transform.position, arena.FlagBBase) < 2f)
+                if (session.Team == Team.TeamB && flagCarrierA == player.userID && Vector3.Distance(player.transform.position, arena.FlagBBase) < FlagInteractionDistance)
                 {
                     teamBScore++;
                     flagCarrierA = 0;
-                    droppedFlagA = null;
+                    ClearDroppedFlag(Team.TeamA);
                     CheckMatchEnd();
                 }
             }
@@ -939,16 +958,35 @@ namespace Oxide.Plugins
             var item = player.inventory.containerBelt?.FindItemByItemID(itemId)
                        ?? player.inventory.containerWear?.FindItemByItemID(itemId);
             item?.RemoveFromContainer();
-            item?.Drop(player.transform.position + player.transform.forward, Vector3.zero);
+            var dropped = item?.Drop(player.transform.position + player.transform.forward, Vector3.zero);
+            var dropPosition = dropped?.transform.position ?? player.transform.position;
             if (flagTeam == Team.TeamA)
             {
                 flagCarrierA = 0;
-                droppedFlagA = player.transform.position;
+                droppedFlagA = dropPosition;
+                droppedFlagEntityA = dropped;
             }
             else
             {
                 flagCarrierB = 0;
-                droppedFlagB = player.transform.position;
+                droppedFlagB = dropPosition;
+                droppedFlagEntityB = dropped;
+            }
+        }
+
+        private void ClearDroppedFlag(Team flagTeam)
+        {
+            if (flagTeam == Team.TeamA)
+            {
+                droppedFlagEntityA?.Kill();
+                droppedFlagEntityA = null;
+                droppedFlagA = null;
+            }
+            else
+            {
+                droppedFlagEntityB?.Kill();
+                droppedFlagEntityB = null;
+                droppedFlagB = null;
             }
         }
         #endregion
@@ -976,7 +1014,7 @@ namespace Oxide.Plugins
 
             container.Add(new CuiLabel
             {
-                Text = { Text = $"K/D: {data.Kills}/{Mathf.Max(1, data.Deaths)}", FontSize = 16, Align = TextAnchor.MiddleLeft, Color = TextColor },
+                Text = { Text = $"K/D: {data.Kills}/{data.Deaths}", FontSize = 16, Align = TextAnchor.MiddleLeft, Color = TextColor },
                 RectTransform = { AnchorMin = "0.08 0.68", AnchorMax = "0.5 0.76" }
             }, MainUi);
 
@@ -1073,7 +1111,10 @@ namespace Oxide.Plugins
             for (var i = 0; i < voteOrder.Count; i++)
             {
                 var arenaName = voteOrder[i];
-                var arena = storedData.Arenas[arenaName];
+                if (!storedData.Arenas.TryGetValue(arenaName, out var arena))
+                {
+                    continue;
+                }
                 var anchorMin = $"{startX + i * (width + 0.04f)} 0.2";
                 var anchorMax = $"{startX + i * (width + 0.04f) + width} 0.75";
                 var image = GetImage(arena.Thumbnail ?? "panel");
@@ -1187,6 +1228,7 @@ namespace Oxide.Plugins
                 {
                     continue;
                 }
+                var targetPlayer = player;
                 killFeed[player.userID] = $"{attackerName} → {victimName}";
                 DestroyUi(player, KillFeedUi);
                 var container = new CuiElementContainer();
@@ -1201,7 +1243,13 @@ namespace Oxide.Plugins
                     RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" }
                 }, KillFeedUi);
                 CuiHelper.AddUi(player, container);
-                timer.Once(3f, () => DestroyUi(player, KillFeedUi));
+                timer.Once(3f, () =>
+                {
+                    if (targetPlayer != null && targetPlayer.IsConnected)
+                    {
+                        DestroyUi(targetPlayer, KillFeedUi);
+                    }
+                });
             }
         }
 
@@ -1263,7 +1311,7 @@ namespace Oxide.Plugins
             {
                 return;
             }
-            var options = arenas.OrderBy(_ => UnityEngine.Random.value).Take(config.MaxVoteOptions);
+            var options = arenas.OrderBy(_ => rng.Next()).Take(config.MaxVoteOptions);
             foreach (var arenaName in options)
             {
                 voteOrder.Add(arenaName);
@@ -1368,22 +1416,22 @@ namespace Oxide.Plugins
                 }
                 switch (mode)
                 {
-                    case WandMode.lobby:
+                    case WandMode.Lobby:
                         arena.LobbyPosition = position.Value;
                         break;
-                    case WandMode.spawnA:
+                    case WandMode.SpawnA:
                         arena.TeamASpawns.Add(position.Value);
                         break;
-                    case WandMode.spawnB:
+                    case WandMode.SpawnB:
                         arena.TeamBSpawns.Add(position.Value);
                         break;
-                    case WandMode.ffa:
+                    case WandMode.FFA:
                         arena.FFASpawns.Add(position.Value);
                         break;
-                    case WandMode.flagA:
+                    case WandMode.FlagA:
                         arena.FlagABase = position.Value;
                         break;
-                    case WandMode.flagB:
+                    case WandMode.FlagB:
                         arena.FlagBBase = position.Value;
                         break;
                 }
@@ -1395,7 +1443,7 @@ namespace Oxide.Plugins
         private Vector3? GetLookPoint(BasePlayer player)
         {
             RaycastHit hit;
-            if (Physics.Raycast(player.eyes.HeadRay(), out hit, 100f))
+            if (Physics.Raycast(player.eyes.HeadRay(), out hit, WandMaxRaycastDistance))
             {
                 return hit.point;
             }
@@ -1474,6 +1522,42 @@ namespace Oxide.Plugins
             return arena;
         }
 
+        private StoredData CloneData()
+        {
+            var clone = new StoredData();
+            foreach (var entry in storedData.Players)
+            {
+                var data = entry.Value;
+                clone.Players[entry.Key] = new PlayerData
+                {
+                    Kills = data.Kills,
+                    Wins = data.Wins,
+                    Deaths = data.Deaths,
+                    PaintChips = data.PaintChips,
+                    ActiveLook = data.ActiveLook,
+                    UnlockedLooks = data.UnlockedLooks != null
+                        ? new HashSet<string>(data.UnlockedLooks)
+                        : new HashSet<string>()
+                };
+            }
+            foreach (var entry in storedData.Arenas)
+            {
+                var arena = entry.Value;
+                clone.Arenas[entry.Key] = new Arena
+                {
+                    Name = arena.Name,
+                    LobbyPosition = arena.LobbyPosition,
+                    TeamASpawns = new List<Vector3>(arena.TeamASpawns ?? new List<Vector3>()),
+                    TeamBSpawns = new List<Vector3>(arena.TeamBSpawns ?? new List<Vector3>()),
+                    FFASpawns = new List<Vector3>(arena.FFASpawns ?? new List<Vector3>()),
+                    FlagABase = arena.FlagABase,
+                    FlagBBase = arena.FlagBBase,
+                    Thumbnail = arena.Thumbnail
+                };
+            }
+            return clone;
+        }
+
         private void LoadData()
         {
             try
@@ -1488,8 +1572,26 @@ namespace Oxide.Plugins
 
         private void SaveDataAsync()
         {
-            var snapshot = storedData;
-            Task.Run(() => Interface.Oxide.DataFileSystem.WriteObject(DataFileName, snapshot));
+            if (Interlocked.Exchange(ref savingData, 1) == 1)
+            {
+                return;
+            }
+            var snapshot = CloneData();
+            Task.Run(() =>
+            {
+                try
+                {
+                    Interface.Oxide.DataFileSystem.WriteObject(DataFileName, snapshot);
+                }
+                catch (Exception ex)
+                {
+                    Interface.Oxide.LogError($"PaintballUltra save failed: {ex}");
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref savingData, 0);
+                }
+            });
         }
         #endregion
 
@@ -1660,12 +1762,12 @@ namespace Oxide.Plugins
 
         private enum WandMode
         {
-            lobby,
-            spawnA,
-            spawnB,
-            ffa,
-            flagA,
-            flagB
+            Lobby,
+            SpawnA,
+            SpawnB,
+            FFA,
+            FlagA,
+            FlagB
         }
         #endregion
     }
