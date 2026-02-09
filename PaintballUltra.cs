@@ -7,6 +7,7 @@ using Oxide.Core;
 using Oxide.Core.Libraries.Covalence;
 using Oxide.Core.Plugins;
 using Oxide.Game.Rust.Cui;
+using Rust;
 using UnityEngine;
 
 namespace Oxide.Plugins
